@@ -104,7 +104,11 @@ L.GridLayer = L.Layer.extend({
 
 		if (!this.options.updateWhenIdle) {
 			// update tiles on move, but not more often than once per given interval
-			events.move = L.Util.throttle(this._onMoveEnd, this.options.updateInterval, this);
+			if (!this._onMove) {
+				this._onMove = L.Util.throttle(this._onMoveEnd, this.options.updateInterval, this);
+			}
+
+			events.move = this._onMove;
 		}
 
 		if (this._zoomAnimated) {
@@ -403,6 +407,8 @@ L.GridLayer = L.Layer.extend({
 	},
 
 	_onMoveEnd: function () {
+		if (!this._map) { return; }
+
 		this._update();
 		this._pruneTiles();
 	},
@@ -413,15 +419,19 @@ L.GridLayer = L.Layer.extend({
 		if (!map) { return; }
 
 		if (center === undefined) { center = map.getCenter(); }
-		if (zoom === undefined) { zoom = Math.round(map.getZoom()); }
+		if (zoom === undefined) { zoom = map.getZoom(); }
+		var tileZoom = Math.round(zoom);
 
-		if (zoom > this.options.maxZoom ||
-			zoom < this.options.minZoom) { return; }
+		if (tileZoom > this.options.maxZoom ||
+			tileZoom < this.options.minZoom) { return; }
 
-		var pixelBounds = map.getPixelBounds(center, zoom),
-			tileRange = this._pxBoundsToTileRange(pixelBounds),
-			tileCenter = tileRange.getCenter(),
-			queue = [];
+		var scale = this._map.getZoomScale(zoom, tileZoom),
+		    pixelCenter = map.project(center, tileZoom).floor(),
+		    halfSize = map.getSize().divideBy(scale * 2),
+		    pixelBounds = new L.Bounds(pixelCenter.subtract(halfSize), pixelCenter.add(halfSize)),
+		    tileRange = this._pxBoundsToTileRange(pixelBounds),
+		    tileCenter = tileRange.getCenter(),
+		    queue = [];
 
 		for (var key in this._tiles) {
 			this._tiles[key].current = false;
@@ -431,7 +441,7 @@ L.GridLayer = L.Layer.extend({
 		for (var j = tileRange.min.y; j <= tileRange.max.y; j++) {
 			for (var i = tileRange.min.x; i <= tileRange.max.x; i++) {
 				var coords = new L.Point(i, j);
-				coords.z = zoom;
+				coords.z = tileZoom;
 
 				if (!this._isValidTile(coords)) { continue; }
 
